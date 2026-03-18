@@ -143,34 +143,39 @@
             `;
 
             try {
-                // Use AllOrigins free proxy to fetch the HTML content
+                // Swapped to corsproxy.io, which plays much nicer with github.io
                 const targetUrl = `https://atis.guru/atis/${icao}`;
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
                 
                 const response = await fetch(proxyUrl);
-                const data = await response.json();
                 
-                if (data.contents) {
-                    // Inject a base tag into the HTML head so CSS files and images load correctly from the original server
-                    let htmlContent = data.contents;
-                    htmlContent = htmlContent.replace('<head>', '<head><base href="https://atis.guru/">');
-                    
-                    // Create and inject the iframe dynamically
-                    frameContainer.innerHTML = ''; 
-                    const iframe = document.createElement('iframe');
-                    iframe.srcdoc = htmlContent;
-                    iframe.title = `ATIS Data for ${icao}`;
-                    frameContainer.appendChild(iframe);
-                } else {
-                    throw new Error("No content received");
+                // Check if the proxy successfully fetched the page
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
+                
+                // corsproxy returns raw text/html, not a JSON object
+                let htmlContent = await response.text();
+                
+                // Inject the base tag so the CSS and images load properly
+                htmlContent = htmlContent.replace('<head>', '<head><base href="https://atis.guru/">');
+                
+                // Create and inject the iframe dynamically
+                frameContainer.innerHTML = ''; 
+                const iframe = document.createElement('iframe');
+                iframe.srcdoc = htmlContent;
+                iframe.title = `ATIS Data for ${icao}`;
+                frameContainer.appendChild(iframe);
+                
             } catch (error) {
+                console.warn("Proxy error:", error);
                 // Fallback mechanism if the proxy fails
                 frameContainer.innerHTML = `
                     <div class="status-message">
                         <h3>Proxy Fetch Failed</h3>
-                        <p>Unable to load ${icao} inside the pane.</p>
-                        <a href="https://atis.guru/atis/${icao}" target="_blank" style="padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px;">Open directly in new tab</a>
+                        <p>Unable to load ${icao} inside the pane. The free proxy might be temporarily rate-limited.</p>
+                        <br>
+                        <a href="https://atis.guru/atis/${icao}" target="_blank" style="padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Open directly in new tab</a>
                     </div>
                 `;
             }
