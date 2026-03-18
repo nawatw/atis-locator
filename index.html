@@ -152,11 +152,20 @@
             if (isAuto) {
                 // Flag the session to prevent auto-redirect loops when returning
                 sessionStorage.setItem('autoRedirectComplete', 'true');
-                // Push a state to the history stack to absorb the browser's replace action
-                window.history.pushState(null, null, window.location.href);
+                
+                // Fix for Chromium browsers (Samsung Internet/Chrome)
+                // Changing the hash forces the engine to commit the current page to the history stack
+                window.location.hash = 'viewed';
+                
+                // A 150ms delay gives the browser time to register the history state
+                // before the external navigation fires
+                setTimeout(() => {
+                    window.location.href = `https://atis.guru/atis/${icao}`;
+                }, 150);
+            } else {
+                // Manual clicks are unaffected by the Chromium intervention
+                window.location.href = `https://atis.guru/atis/${icao}`;
             }
-
-            window.location.href = `https://atis.guru/atis/${icao}`;
         }
 
         function startTimer(nearestIcao) {
