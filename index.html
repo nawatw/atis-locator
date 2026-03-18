@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nearest ATIS Radar</title>
+    <script src="wikipedia_airports.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #fff;
+        }
+
+        #sidebar {
+            width: 350px;
+            background-color: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+
+        #location-panel {
+            padding: 20px;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            text-align: center;
+        }
+
+        #location-panel h3 { margin: 0 0 10px 0; font-size: 1.1rem; font-weight: 500; }
+        #location-data { font-size: 0.9rem; color: #bdc3c7; }
+
+        #airport-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .airport-item {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .airport-item:hover { background-color: #e2e6ea; }
+        .airport-item.active { background-color: #3498db; color: white; border-bottom-color: #2980b9; }
+
+        .icao-code { font-weight: bold; font-size: 1.1rem; }
+        .distance { font-size: 0.9rem; opacity: 0.8; }
+
+        #main-content {
+            flex: 1;
+            background-color: #e9ecef;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .status-message {
+            text-align: center;
+            padding: 2rem;
+            color: #555;
+        }
+
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div id="location-panel">
+            <h3>Current Location</h3>
+            <div id="location-data"><span class="loader"></span> Detecting...</div>
+        </div>
+        <ul id="airport-list"></ul>
+    </div>
+
+    <div id="main-content">
+        <div class="status-message">Waiting for location data...</div>
+    </div>
+
+    <script>
+        function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+            const R = 6371; 
+            const dLat = deg2rad(lat2 - lat1);
+            const dLon = deg2rad(lon2 - lon1); 
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2); 
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+            return R * c; 
+        }
+
+        function deg2rad(deg) { return deg * (Math.PI/180); }
+
+        async function loadIframe(icao, listItem) {
+            // Update UI selection
+            const allItems = document.querySelectorAll('.airport-item');
+            allItems.forEach(item => item.classList.remove('active'));
+            if (listItem) listItem.classList.add('active');
+
+            const frameContainer = document.getElementById('main-content');
+            
+            // Show loading state
+            frameContainer.innerHTML = `
+                <div class="status-message">
+                    <div class="loader"></div>
+                    <div>Fetching ATIS for ${icao} bypassing security policies...</div>
+                </div>
+            `;
+
+            try {
+                // Use AllOrigins free proxy to fetch the HTML content
+                const targetUrl = `https://atis.guru/atis/${icao}`;
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+                
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+                
+                if (data.contents) {
+                    // Inject a base tag into the HTML head so CSS files and images load correctly from the original server
+                    let htmlContent = data.contents;
+                    htmlContent = htmlContent.replace('<head>', '<head><base href="https://atis.guru/">');
+                    
+                    // Create and inject the iframe dynamically
+                    frameContainer.innerHTML = ''; 
+                    const iframe = document.createElement('iframe');
+                    iframe.srcdoc = htmlContent;
+                    iframe.title = `ATIS Data for ${icao}`;
+                    frameContainer.appendChild(iframe);
+                } else {
+                    throw new Error("No content received");
+                }
+            } catch (error) {
+                // Fallback mechanism if the proxy fails
+                frameContainer.innerHTML = `
+                    <div class="status-message">
+                        <h3>Proxy Fetch Failed</h3>
+                        <p>Unable to load ${icao} inside the pane.</p>
+                        <a href="https://atis.guru/atis/${icao}" target="_blank" style="padding: 10px 20px; background: #3498db; color: white; text-decoration: none; border-radius: 5px;">Open directly in new tab</a>
+                    </div>
+                `;
+            }
+        }
+
+        async function getCityName(lat, lon) {
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.name || data.address.city || data.address.town || data.address.state || null;
+                }
+            } catch (e) {
+                return null; // Silent fail, fallback to coords
+            }
+        }
+
+        function initializeApp() {
+            const locationDiv = document.getElementById('location-data');
+            const airportListUI = document.getElementById('airport-list');
+
+            if (!navigator.geolocation) {
+                locationDiv.innerText = "Geolocation not supported.";
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    const userLat = position.coords.latitude;
+                    const userLon = position.coords.longitude;
+                    
+                    const cityName = await getCityName(userLat, userLon);
+                    locationDiv.innerText = cityName ? cityName : `${userLat.toFixed(4)}, ${userLon.toFixed(4)}`;
+
+                    let distanceArray = [];
+                    // Ensure 'airports' is loaded from wikipedia_airports.js
+                    if (typeof airports === 'undefined') {
+                        locationDiv.innerText = "Error: Database file missing.";
+                        return;
+                    }
+
+                    for (const [icao, coords] of Object.entries(airports)) {
+                        const distance = getDistanceFromLatLonInKm(userLat, userLon, coords.lat, coords.lon);
+                        distanceArray.push({ icao: icao, distance: distance });
+                    }
+                    
+                    distanceArray.sort((a, b) => a.distance - b.distance);
+                    const top10 = distanceArray.slice(0, 10);
+
+                    airportListUI.innerHTML = ''; 
+                    
+                    top10.forEach((item, index) => {
+                        const li = document.createElement('li');
+                        li.className = 'airport-item';
+                        
+                        const distFormatted = item.distance < 100 ? item.distance.toFixed(1) : Math.round(item.distance);
+
+                        li.innerHTML = `
+                            <span class="icao-code">${item.icao}</span>
+                            <span class="distance">${distFormatted} km</span>
+                        `;
+                        
+                        li.onclick = () => loadIframe(item.icao, li);
+                        airportListUI.appendChild(li);
+
+                        // Auto-load the nearest aerodrome
+                        if (index === 0) {
+                            loadIframe(item.icao, li);
+                        }
+                    });
+                },
+                (error) => {
+                    locationDiv.innerText = "Location access denied.";
+                },
+                { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        window.onload = initializeApp;
+    </script>
+</body>
+</html>
