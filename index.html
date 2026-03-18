@@ -118,7 +118,7 @@
         <ul id="airport-list"></ul>
     </div>
 
-    <script>
+<script>
         let countdownInterval;
 
         function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
@@ -145,10 +145,17 @@
             }
         }
 
-        function redirect(icao) {
-            // Clear the timer so it doesn't trigger twice
+        function redirect(icao, isAuto = false) {
             clearInterval(countdownInterval);
             document.getElementById('timer-display').innerText = "Redirecting...";
+
+            if (isAuto) {
+                // Flag the session to prevent auto-redirect loops when returning
+                sessionStorage.setItem('autoRedirectComplete', 'true');
+                // Push a state to the history stack to absorb the browser's replace action
+                window.history.pushState(null, null, window.location.href);
+            }
+
             window.location.href = `https://atis.guru/atis/${icao}`;
         }
 
@@ -164,7 +171,7 @@
                     timerDisplay.innerText = `Auto-redirecting to ${nearestIcao} in ${timeLeft}s`;
                 } else {
                     clearInterval(countdownInterval);
-                    redirect(nearestIcao);
+                    redirect(nearestIcao, true);
                 }
             }, 1000);
         }
@@ -214,13 +221,19 @@
                             <span class="distance">${distFormatted} km</span>
                         `;
                         
-                        // Click event routes immediately
-                        li.onclick = () => redirect(item.icao);
+                        // Manual clicks pass 'false' to the redirect function
+                        li.onclick = () => redirect(item.icao, false);
                         airportListUI.appendChild(li);
                     });
 
-                    // Start the 10-second countdown
-                    startTimer(nearestIcao);
+                    // Check if the user arrived here via the Back button after an auto-redirect
+                    if (sessionStorage.getItem('autoRedirectComplete')) {
+                        const timerDisplay = document.getElementById('timer-display');
+                        timerDisplay.innerText = "Auto-redirect paused. Select manually.";
+                        timerDisplay.style.color = "#7f8c8d";
+                    } else {
+                        startTimer(nearestIcao);
+                    }
                 },
                 (error) => {
                     locationDiv.innerText = "Location access denied.";
